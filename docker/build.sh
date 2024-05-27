@@ -84,6 +84,12 @@ export RUN_IMG=nvidia/dali:py${PYV}_cu${CUDA_VERSION}.run
 export GIT_SHA=$(git rev-parse HEAD)
 export DALI_TIMESTAMP=$(date +%Y%m%d)
 
+# ! Docker proxy settings
+HTTP_PROXY=${HTTP_PROXY:-$http_proxy}
+HTTPS_PROXY=${HTTPS_PROXY:-$https_proxy}
+DOCKER_PROXY_ARG="--network host --build-arg HTTP_PROXY=${HTTP_PROXY} --build-arg HTTPS_PROXY=${HTTPS_PROXY}"
+# DOCKER_PROXY_ARG=""
+
 set -o errexit
 
 pushd ../
@@ -92,15 +98,15 @@ if [[ "$REBUILD_BUILDERS" != "NO" || "$(docker images -q ${DEPS_IMAGE} 2> /dev/n
     echo "Build deps: " ${DEPS_IMAGE}
     #docker build --no-cache -t ${CUDA_DEPS_IMAGE} -f docker/Dockerfile.cuda${CUDA_VERSION}.deps .
     #docker build --no-cache -t ${DEPS_IMAGE} --build-arg "FROM_IMAGE_NAME"=${BASE_NAME} --build-arg "CUDA_IMAGE=${CUDA_DEPS_IMAGE}" -f docker/Dockerfile.deps .
-    docker build -t ${CUDA_DEPS_IMAGE} -f docker/Dockerfile.cuda${CUDA_VERSION}.deps .
-    docker build -t ${DEPS_IMAGE} --build-arg "FROM_IMAGE_NAME"=${BASE_NAME} --build-arg "CUDA_IMAGE=${CUDA_DEPS_IMAGE}" -f docker/Dockerfile.deps .
+    docker build ${DOCKER_PROXY_ARG} -t ${CUDA_DEPS_IMAGE} -f docker/Dockerfile.cuda${CUDA_VERSION}.deps .
+    docker build ${DOCKER_PROXY_ARG} -t ${DEPS_IMAGE} --build-arg "FROM_IMAGE_NAME"=${BASE_NAME} --build-arg "CUDA_IMAGE=${CUDA_DEPS_IMAGE}" -f docker/Dockerfile.deps .
 fi
 
 # build builder image if needed
 if [[ "$REBUILD_BUILDERS_2" != "NO" || "$(docker images -q ${BUILDER} 2> /dev/null)" == "" ]]; then
     echo "Build light image:" ${BUILDER}
     #docker build --no-cache -t ${BUILDER} --build-arg "DEPS_IMAGE_NAME=${DEPS_IMAGE}" --build-arg "PYVER=${PYVER}" --build-arg "PYV=${PYV}" --build-arg "NVIDIA_BUILD_ID=${NVIDIA_BUILD_ID}" \
-    docker build -t ${BUILDER} --build-arg "DEPS_IMAGE_NAME=${DEPS_IMAGE}" --build-arg "PYVER=${PYVER}" --build-arg "PYV=${PYV}" --build-arg "NVIDIA_BUILD_ID=${NVIDIA_BUILD_ID}" \
+    docker build ${DOCKER_PROXY_ARG} -t ${BUILDER} --build-arg "DEPS_IMAGE_NAME=${DEPS_IMAGE}" --build-arg "PYVER=${PYVER}" --build-arg "PYV=${PYV}" --build-arg "NVIDIA_BUILD_ID=${NVIDIA_BUILD_ID}" \
                                --build-arg "NVIDIA_DALI_BUILD_FLAVOR=${DALI_BUILD_FLAVOR}" --build-arg "GIT_SHA=${GIT_SHA}" --build-arg "DALI_TIMESTAMP=${DALI_TIMESTAMP}" \
                                --build-arg "CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}" --target builder -f docker/Dockerfile .
 fi
@@ -108,14 +114,14 @@ fi
 if [[ "$BUILD_TF_PLUGIN" == "YES" && "${PREBUILD_TF_PLUGINS}" == "YES" && ("$REBUILD_BUILDERS" != "NO" || "$(docker images -q ${BUILDER_DALI_TF_BASE_MANYLINUX1} 2> /dev/null)" == "" || "$(docker images -q ${BUILDER_DALI_TF_BASE_MANYLINUX2010} 2> /dev/null)"  == "") ]]; then
     echo "Build DALI TF base (manylinux1)"
     TF_CUSTOM_OP_IMAGE_MANYLINUX1="tensorflow/tensorflow:custom-op-gpu-ubuntu14"
-    docker build -t ${BUILDER_DALI_TF_BASE_MANYLINUX1} \
+    docker build ${DOCKER_PROXY_ARG} -t ${BUILDER_DALI_TF_BASE_MANYLINUX1} \
            --build-arg "TF_CUSTOM_OP_IMAGE=${TF_CUSTOM_OP_IMAGE_MANYLINUX1}" \
            --build-arg "CUDA_IMAGE=${CUDA_DEPS_IMAGE}" \
            --build-arg "PYVER=${PYVER}" --build-arg "PYV=${PYV}" \
            -f docker/Dockerfile.customopbuilder.clean .
     echo "Build DALI TF base (manylinux2010)"
     TF_CUSTOM_OP_IMAGE_MANYLINUX2010="tensorflow/tensorflow:custom-op-gpu-ubuntu16"
-    docker build -t ${BUILDER_DALI_TF_BASE_MANYLINUX2010} \
+    docker build ${DOCKER_PROXY_ARG} -t ${BUILDER_DALI_TF_BASE_MANYLINUX2010} \
            --build-arg "TF_CUSTOM_OP_IMAGE=${TF_CUSTOM_OP_IMAGE_MANYLINUX2010}" \
            --build-arg "CUDA_IMAGE=${CUDA_DEPS_IMAGE}" \
            --build-arg "PYVER=${PYVER}" --build-arg "PYV=${PYV}" \
@@ -158,7 +164,7 @@ if [ "$BUILD_INHOST" == "YES" ]; then
                                         cp /wheelhouse/* ./"
 else
     echo "Build image:" ${BUILDER_WHL}
-    docker build -t ${BUILDER_WHL} --build-arg "DEPS_IMAGE_NAME=${DEPS_IMAGE}"             \
+    docker build ${DOCKER_PROXY_ARG} -t ${BUILDER_WHL} --build-arg "DEPS_IMAGE_NAME=${DEPS_IMAGE}"             \
                                    --build-arg "PYVER=${PYVER}"                            \
                                    --build-arg "PYV=${PYV}"                                \
                                    --build-arg "ARCH=${ARCH}"                              \
@@ -194,15 +200,16 @@ fi
 if [ "$CREATE_RUNNER" == "YES" ]; then
     echo "Runner image:" ${RUN_IMG}
     echo "You can run this image with DALI installed inside, keep in mind to install neccessary FW package as well"
-    if [ ${CUDA_VERSION} == "9" ] ; then
-        export CUDA_IMAGE_NAME="nvidia/cuda:9.0-cudnn7-devel-ubuntu16.04"
-    elif [ ${CUDA_VERSION} == "10" ] ; then
-        export CUDA_IMAGE_NAME="nvidia/cuda:10.0-cudnn7-devel-ubuntu16.04"
-    else
-        echo "**************************************************************"
-        echo "Not supported CUDA version"
-        echo "**************************************************************"
-    fi
+    # if [ ${CUDA_VERSION} == "9" ] ; then
+    #     export CUDA_IMAGE_NAME="nvidia/cuda:9.0-cudnn7-devel-ubuntu16.04"
+    # elif [ ${CUDA_VERSION} == "10" ] ; then
+    #     export CUDA_IMAGE_NAME="nvidia/cuda:10.0-cudnn7-devel-ubuntu16.04"
+    # else
+    #     echo "**************************************************************"
+    #     echo "Not supported CUDA version"
+    #     echo "**************************************************************"
+    # fi
+    export CUDA_IMAGE_NAME="nvidia/cuda:11.3.1-cudnn8-devel-ubuntu16.04"
     echo ${CUDA_VERSION}
     echo ${CUDA_IMAGE_NAME}
     export BUILDER_TMP=${BUILDER_WHL}
@@ -212,11 +219,11 @@ if [ "$CREATE_RUNNER" == "YES" ]; then
         DOCKER_FILE_TMP=$(mktemp)
         echo -e "FROM scratch\n"          \
                 "COPY ./${DALI_BUILD_DIR}/nvidia* /wheelhouse/\n" > ${DOCKER_FILE_TMP}
-        docker build -t ${BUILDER_TMP} -f ${DOCKER_FILE_TMP} .
+        docker build ${DOCKER_PROXY_ARG} -t ${BUILDER_TMP} -f ${DOCKER_FILE_TMP} .
         rm ${DOCKER_FILE_TMP}
     fi
     pwd
-    docker build -t ${RUN_IMG} --build-arg "BUILD_IMAGE_NAME=${BUILDER_TMP}" --build-arg "CUDA_IMAGE_NAME=${CUDA_IMAGE_NAME}" --build-arg "PYVER=${PYVER}" --build-arg "PYV=${PYV}" -f docker/Docker_run_cuda .
+    docker build ${DOCKER_PROXY_ARG} -t ${RUN_IMG} --build-arg "BUILD_IMAGE_NAME=${BUILDER_TMP}" --build-arg "CUDA_IMAGE_NAME=${CUDA_IMAGE_NAME}" --build-arg "PYVER=${PYVER}" --build-arg "PYV=${PYV}" -f docker/Docker_run_cuda .
     # remove scratch image
     if [ "$BUILD_INHOST" = "YES" ]; then
         docker rmi ${BUILDER_TMP}
@@ -264,7 +271,7 @@ if [[ "$CREATE_WHL" == "YES" && "$BUILD_TF_PLUGIN" = "YES" ]]; then
     mkdir -p ./dali_tf_plugin/prebuilt/;
     if [ "${PREBUILD_TF_PLUGINS}" == "YES" ]; then
         echo "Build image:" ${BUILDER_DALI_TF_MANYLINUX1}
-        docker build -t ${BUILDER_DALI_TF_MANYLINUX1} -f docker/Dockerfile_dali_tf \
+        docker build ${DOCKER_PROXY_ARG} -t ${BUILDER_DALI_TF_MANYLINUX1} -f docker/Dockerfile_dali_tf \
             --build-arg "TF_CUSTOM_OP_BUILDER_IMAGE=${BUILDER_DALI_TF_BASE_MANYLINUX1}" \
             .
         export DALI_TF_BUILDER_CONTAINER_MANYLINUX1="extract_dali_tf_prebuilt_manylinux1"
@@ -273,7 +280,7 @@ if [[ "$CREATE_WHL" == "YES" && "$BUILD_TF_PLUGIN" = "YES" ]]; then
         docker rm -f "${DALI_TF_BUILDER_CONTAINER_MANYLINUX1}"
 
         echo "Build image:" ${BUILDER_DALI_TF_MANYLINUX2010}
-        docker build -t ${BUILDER_DALI_TF_MANYLINUX2010} -f docker/Dockerfile_dali_tf \
+        docker build ${DOCKER_PROXY_ARG} -t ${BUILDER_DALI_TF_MANYLINUX2010} -f docker/Dockerfile_dali_tf \
             --build-arg "TF_CUSTOM_OP_BUILDER_IMAGE=${BUILDER_DALI_TF_BASE_MANYLINUX2010}" \
             .
         export DALI_TF_BUILDER_CONTAINER_MANYLINUX2010="extract_dali_tf_prebuilt_manylinux2010"
@@ -285,7 +292,7 @@ if [[ "$CREATE_WHL" == "YES" && "$BUILD_TF_PLUGIN" = "YES" ]]; then
         rm -rf ./prebuilt_manylinux2010/ ./prebuilt_manylinux1/
     fi
 
-    docker build -t ${BUILDER_DALI_TF_SDIST} \
+    docker build ${DOCKER_PROXY_ARG} -t ${BUILDER_DALI_TF_SDIST} \
            -f docker/Dockerfile_dali_tf \
            --build-arg "TF_CUSTOM_OP_BUILDER_IMAGE=${BUILDER}" \
            --build-arg "NVIDIA_BUILD_ID=${CI_PIPELINE_ID}" \
