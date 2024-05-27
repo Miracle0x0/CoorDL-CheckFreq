@@ -14,12 +14,15 @@ RUN add-apt-repository ppa:deadsnakes/ppa
 # RUN add-apt-repository ppa:fkrull/deadsnakes
 RUN apt-get update
 RUN apt-get install -y --no-install-recommends \
-        curl \
-	wget \
-	openssl \
-	libssl-dev \
-	zlib1g-dev \
-        git && \
+    curl \
+    wget \
+    openssl \
+    libssl-dev \
+    zlib1g-dev \
+    lzma \
+    liblzma-dev \
+    libbz2-dev \
+    git && \
     rm -rf /var/lib/apt/lists/*
 
 #        python$PYVER \
